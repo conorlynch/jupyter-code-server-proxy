@@ -57,14 +57,17 @@ def setup_code_server() -> Dict[str, Any]:
     # generate file with random one-time-password
     code_server_passwd = str(secrets.token_hex(16))
 
+    # Get home dir
+    home_dir = os.path.expanduser('~')
+
     # Config file name
     # Each lab instance can have its own config file. We do not want to overwrite
     # existing lab config. So we prepend name of config with lab server name
-    code_server_config_file_name = os.env.get(
+    code_server_config_file_name = os.environ.get(
         'JUPYTERHUB_SERVER_NAME', default='jupyterlab'
     )
     code_server_config_file = os.path.join(
-        os.path.expanduser('~'), '.config', 'code-server',
+        home_dir, '.config', 'code-server',
         f'{code_server_config_file_name}-config.yaml'
     )
 
@@ -78,7 +81,7 @@ def setup_code_server() -> Dict[str, Any]:
             'auth': 'password',
             'password': code_server_passwd,
             'cert': False,
-            'user-data-dir': os.environ['WORK'],
+            'user-data-dir': os.environ.get('WORK', default=home_dir),
         }
         # Dump config file
         with open(code_server_config_file, 'w') as f:
