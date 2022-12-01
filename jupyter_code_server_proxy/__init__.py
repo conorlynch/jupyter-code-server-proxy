@@ -57,28 +57,23 @@ def setup_code_server() -> Dict[str, Any]:
     # generate file with random one-time-password
     code_server_passwd = str(secrets.token_hex(16))
 
-    # Get home directory of the user
-    code_server_config_file = os.path.join(
-        os.path.expanduser('~'), '.config', 'code-server', 'config.yaml'
+    # Config file name
+    # Each lab instance can have its own config file. We do not want to overwrite
+    # existing lab config. So we prepend name of config with lab server name
+    code_server_config_file_name = os.env.get(
+        'JUPYTERHUB_SERVER_NAME', default='jupyterlab'
     )
-
-    # # path generator to write password and key
-    # # By default password will be written to $HOME/.code_server/passwd-job-<job_id> file
-    # # So the user can go get the password even after he/she disconnects from code-server
-    # def _write_passwd_file():
-    #     """Save the password in a file with SLURM job ID as filename"""
-    #     # Get SLURM job ID. If not found, default to current timestamp
-    #     slurm_job_id = os.getenv('SLURM_JOB_ID', default=str(int(time.time())))
-    #     prefix = os.path.join(home_dir, '.code_server')
-    #     Path(prefix).mkdir(mode=0o700, parents=True, exist_ok=True)
-    #     passwd_file = os.path.join(prefix, f'passwd-job-{slurm_job_id}')
-    #     with open(passwd_file, 'w') as f:
-    #         f.write(code_server_passwd)
-    #     return passwd_file
+    code_server_config_file = os.path.join(
+        os.path.expanduser('~'), '.config', 'code-server',
+        f'{code_server_config_file_name}-config.yaml'
+    )
 
     # Write code server config file to user's home
     def _write_config_file():
         """Write config file to config directory"""
+        # Ensure config dir exists
+        os.makedirs(os.path.dirname(code_server_config_file), exist_ok=True)
+        # Config file attributes
         config = {
             'auth': 'password',
             'password': code_server_passwd,
@@ -149,7 +144,8 @@ wait
 
         # Make code-server command arguments
         cmd_args = [
-            code_server_wrapper, '--bind-addr', f'127.0.0.1:{port}'
+            code_server_wrapper, '--bind-addr', f'127.0.0.1:{port}',
+            '--config', code_server_config_file,
         ]
 
         # If arguments like host, port are found in config, delete them.
