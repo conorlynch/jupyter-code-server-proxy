@@ -1,0 +1,54 @@
+image: python:3.9-bullseye
+
+stages:
+  - pretest
+  - build
+  - test
+  - release
+
+lint-test:
+  stage: pretest
+  before_script:
+    - pip install -U pip
+    - pip install pylint pylint_junit
+    - pip install -r requirements.txt
+  script:
+    - mkdir -p build/reports
+    - pylint --exit-zero --output-format=pylint_junit.JUnitReporter jupyter_code_server_proxy/ > build/reports/linting.xml
+  artifacts:
+    paths:
+      - build/reports/
+    expire_in: 1 day
+
+build-test:
+  stage: build
+  before_script:
+    - pip install -U pip
+    - pip install -r requirements.txt
+  script:
+    - python setup.py install
+  artifacts:
+    paths:
+      - build/reports/
+    expire_in: 1 day
+
+test:
+  stage: test
+  before_script:
+    - pip install -U pip
+    - pip install pytest-cov
+    - pip install -r requirements.txt
+  script:
+    - PYTHONPATH=$PWD pytest --junitxml=build/reports/unit-tests.xml --cov-report term --cov-report xml:build/reports/code-coverage.xml --cov jupyter_code_server_proxy
+  artifacts:
+    paths:
+      - build/reports/
+    expire_in: 1 day
+
+# Create Gitlab CI badges from CI metrics
+# This job is allowed to fail so that it will not mark CI as
+# failure if this job fails
+include:
+  - remote: 'https://gitlab.com/idris-cnrs/ci-utilities/ci-templates/raw/main/includes/pull-mirror.yml'
+  - remote: 'https://gitlab.com/idris-cnrs/ci-utilities/ci-templates/raw/main/includes/create-badges.yml'
+  - remote: 'https://gitlab.com/idris-cnrs/ci-utilities/ci-templates/raw/main/includes/release.yml'

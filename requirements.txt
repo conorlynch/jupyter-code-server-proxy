@@ -1,0 +1,4 @@
+# List of requirements
+
+jupyter-server-proxy>=3.2.1
+versioneer>=0.22

@@ -1,0 +1,2 @@
+jupyter_mlflow_proxy/_version.py export-subst
+jupyter_code_server_proxy/_version.py export-subst
