@@ -14,6 +14,7 @@
 
 
 import os
+import re
 import stat
 import logging
 import shutil
@@ -23,6 +24,8 @@ import secrets
 
 from typing import Any
 from typing import Dict
+
+import tornado
 
 
 def get_logger(name):
@@ -70,6 +73,14 @@ def setup_code_server() -> Dict[str, Any]:
         f'{code_server_config_file_name}-config.yaml'
     )
 
+    def forbid_port_forwarding(response, request):
+        """Forbid the port forwarding requests to code server"""
+        if re.search(f'(.*)/code_server_[0-9]/proxy/([0-9]*)', request.uri):
+            response.code = 403
+            raise tornado.web.HTTPError(
+                403, 'Port forwarding using code server is forbidden!!'
+            )
+
     # Write code server config file to user's home
     def _write_config_file():
         """Write config file to config directory"""
@@ -80,7 +91,14 @@ def setup_code_server() -> Dict[str, Any]:
             'auth': 'password',
             'password': code_server_passwd,
             'cert': False,
-            'user-data-dir': os.path.join(os.environ.get('WORK', default=home_dir), 'code-server'),
+            'disable-telemetry': True,
+            'disable-update-check': True,
+            'user-data-dir': os.path.join(os.environ.get(
+                'WORK', default=home_dir), 'code-server'
+            ),
+            'extensions-dir': os.path.join(os.environ.get(
+                'WORK', default=home_dir), 'code-server', 'extensions'
+            ),
         }
         # Dump config file
         with open(code_server_config_file, 'w') as f:
@@ -173,22 +191,18 @@ wait
         # If arguments like host, port are found in config, delete them.
         # We let Jupyter server proxy to take care of them
         # Additionally we delete path_prefix as well.
-        for arg in ['--bind-addr', '--install-extension']:
+        for arg in ['--bind-addr', '--install-extension', '--extensions-dir']:
             if arg in args:
                 idx = args.index(arg)
                 del args[idx:idx + 2]
-
-        # Append user provided arguments to cmd_args
-        cmd_args += args
-
-        # Write password to a file so that user can read it
-        # fpath_passwd = _write_passwd_file()
-        # logger.info('Password file for Code server: %s', fpath_passwd)
 
         _write_config_file()
         logger.info(
             'Code server config file is written at %s', code_server_config_file
             )
+
+        # Append user provided arguments to cmd_args
+        cmd_args += args
 
         logger.info(
             'Code server will be launched with arguments %s', cmd_args
@@ -201,6 +215,7 @@ wait
         'absolute_url': False,
         'timeout': 300,
         'new_browser_tab': True,
+        'rewrite_response': forbid_port_forwarding,
         'launcher_entry': {
             'enabled': True,
             'title': 'Code server',
