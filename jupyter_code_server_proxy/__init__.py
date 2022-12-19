@@ -15,9 +15,9 @@
 
 import os
 import re
+import time
 import stat
 import logging
-import shutil
 import json
 from pathlib import Path
 import secrets
@@ -55,6 +55,13 @@ def setup_code_server() -> Dict[str, Any]:
     logger.setLevel(logging.INFO)
 
     code_server_executable = 'code-server'
+    # Get code server env root directory if set
+    code_server_env_root = os.environ.get('CODE_SERVER_ENV_ROOT', '')
+    # Update code_server_executable
+    if code_server_env_root:
+        code_server_executable = os.path.join(
+            code_server_env_root, 'bin', code_server_executable
+        )
 
     # generate file with random one-time-password
     code_server_passwd = str(secrets.token_hex(16))
@@ -84,8 +91,15 @@ def setup_code_server() -> Dict[str, Any]:
     # Write code server config file to user's home
     def _write_config_file():
         """Write config file to config directory"""
+        # code-server config dir
+        code_server_config_dir = os.path.dirname(code_server_config_file)
         # Ensure config dir exists
-        os.makedirs(os.path.dirname(code_server_config_file), exist_ok=True)
+        os.makedirs(code_server_config_dir, exist_ok=True)
+        # # Check last modifed time of config file
+        # last_modified = os.path.getmtime(code_server_config_file)
+        # # If last modified is less than 7 days, do not update password
+        # if time.time() - last_modified < 604800:
+        #     return
         # Config file attributes
         config = {
             'auth': 'password',
@@ -115,8 +129,7 @@ def setup_code_server() -> Dict[str, Any]:
         """Callable that we will pass to sever proxy to spin up
         code server"""
         # Check if code server executable is available
-        executable = shutil.which(code_server_executable)
-        if not executable:
+        if not os.path.exists(code_server_executable):
             raise FileNotFoundError(
                 f'{code_server_executable} executable not found.'
             )
@@ -199,7 +212,7 @@ wait
         _write_config_file()
         logger.info(
             'Code server config file is written at %s', code_server_config_file
-            )
+        )
 
         # Append user provided arguments to cmd_args
         cmd_args += args
