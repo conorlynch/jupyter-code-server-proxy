@@ -69,6 +69,14 @@ def setup_code_server() -> Dict[str, Any]:
     # Get home dir
     home_dir = os.path.expanduser('~')
 
+    # code-server specific dirs
+    user_dir = os.path.join(os.environ.get(
+        'WORK', default=home_dir), 'code-server'
+    )
+    extensions_dir = os.path.join(os.environ.get(
+        'WORK', default=home_dir), 'code-server', 'extensions'
+    )
+
     # Config file name
     # Each lab instance can have its own config file. We do not want to overwrite
     # existing lab config. So we prepend name of config with lab server name
@@ -95,24 +103,16 @@ def setup_code_server() -> Dict[str, Any]:
         code_server_config_dir = os.path.dirname(code_server_config_file)
         # Ensure config dir exists
         os.makedirs(code_server_config_dir, exist_ok=True)
-        # # Check last modifed time of config file
-        # last_modified = os.path.getmtime(code_server_config_file)
-        # # If last modified is less than 7 days, do not update password
-        # if time.time() - last_modified < 604800:
-        #     return
+        # Check last modifed time of config file
+        last_modified = os.path.getmtime(code_server_config_file)
+        # If last modified is less than 7 days, do not update password
+        if time.time() - last_modified < 604800:
+            return
         # Config file attributes
         config = {
             'auth': 'password',
             'password': code_server_passwd,
             'cert': False,
-            'disable-telemetry': True,
-            'disable-update-check': True,
-            'user-data-dir': os.path.join(os.environ.get(
-                'WORK', default=home_dir), 'code-server'
-            ),
-            'extensions-dir': os.path.join(os.environ.get(
-                'WORK', default=home_dir), 'code-server', 'extensions'
-            ),
         }
         # Dump config file
         with open(code_server_config_file, 'w') as f:
@@ -155,12 +155,17 @@ trap exit_script SIGTERM
 
 CPIDS=''
 
+export PATH={code_server_env_root}:$PATH
+
 # We need to send this process to background or else bash
 # will ignore TERM signal as it will wait for code-server to finish
 # before taking signal into account
 {code_server_executable} "$@" &
 wait
-""".format(code_server_executable=code_server_executable)
+""".format(
+    code_server_executable=code_server_executable,
+    code_server_env_root=code_server_env_root
+)
 
         # Fall back root directory. By default we use JOBSCRATCH to place ephermal
         # scripts. If this is not available we need to have a smart fallback
@@ -196,15 +201,23 @@ wait
         os.chmod(code_server_wrapper, st.st_mode | stat.S_IEXEC)
 
         # Make code-server command arguments
+        # NOTE: seems like extensions-dir in config file is ignored. Maybe
+        # we should put an issue in the upstream project?
+        # We pass the extensions-dir argument as CLI
         cmd_args = [
             code_server_wrapper, '--bind-addr', f'127.0.0.1:{port}',
-            '--config', code_server_config_file,
+            '--config', code_server_config_file, '--user-data-dir', user_dir,
+            '--extensions-dir', extensions_dir, '--disable-telemetry',
+            '--disable-update-check'
         ]
 
         # If arguments like host, port are found in config, delete them.
         # We let Jupyter server proxy to take care of them
         # Additionally we delete path_prefix as well.
-        for arg in ['--bind-addr', '--install-extension', '--extensions-dir']:
+        for arg in [
+            '--bind-addr', '--install-extension',
+            '--extensions-dir', '--user-dir'
+            ]:
             if arg in args:
                 idx = args.index(arg)
                 del args[idx:idx + 2]
