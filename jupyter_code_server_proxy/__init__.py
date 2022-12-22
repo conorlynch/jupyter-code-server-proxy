@@ -103,11 +103,15 @@ def setup_code_server() -> Dict[str, Any]:
         code_server_config_dir = os.path.dirname(code_server_config_file)
         # Ensure config dir exists
         os.makedirs(code_server_config_dir, exist_ok=True)
-        # Check last modifed time of config file
-        last_modified = os.path.getmtime(code_server_config_file)
-        # If last modified is less than 7 days, do not update password
-        if time.time() - last_modified < 604800:
-            return
+        try:
+            # Check last modifed time of config file
+            last_modified = os.path.getmtime(code_server_config_file)
+            # If last modified is less than 7 days, do not update password
+            if time.time() - last_modified < 604800:
+                return
+        except FileNotFoundError:
+            # If file does not exist continue
+            pass
         # Config file attributes
         config = {
             'auth': 'password',
@@ -155,7 +159,7 @@ trap exit_script SIGTERM
 
 CPIDS=''
 
-export PATH={code_server_env_root}:$PATH
+export PATH={code_server_env_bin}:$PATH
 
 # We need to send this process to background or else bash
 # will ignore TERM signal as it will wait for code-server to finish
@@ -164,7 +168,7 @@ export PATH={code_server_env_root}:$PATH
 wait
 """.format(
     code_server_executable=code_server_executable,
-    code_server_env_root=code_server_env_root
+    code_server_env_bin=os.path.join(code_server_env_root, 'bin')
 )
 
         # Fall back root directory. By default we use JOBSCRATCH to place ephermal
@@ -216,7 +220,7 @@ wait
         # Additionally we delete path_prefix as well.
         for arg in [
             '--bind-addr', '--install-extension',
-            '--extensions-dir', '--user-dir'
+            '--extensions-dir', '--user-data-dir'
             ]:
             if arg in args:
                 idx = args.index(arg)
