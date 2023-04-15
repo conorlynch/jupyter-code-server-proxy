@@ -177,7 +177,7 @@ wait
         # into account.
         # Fallback to fallback is /tmp/$USER
         fallback_scratch_dir_prefix = os.environ.get(
-            'JUPYTER_CONFIG_DIR', default=os.path.join(
+            'JUPYTER_FILES_ROOT', default=os.path.join(
                 '/tmp', os.environ.get('USER')
             )
         )
