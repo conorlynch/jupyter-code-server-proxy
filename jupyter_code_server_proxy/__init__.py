@@ -15,7 +15,8 @@
 
 import os
 import re
-import time
+import tempfile
+import getpass
 import stat
 import logging
 import json
@@ -64,6 +65,9 @@ def setup_code_server() -> Dict[str, Any]:
     # Get home dir
     home_dir = os.path.expanduser('~')
 
+    # Get current user
+    current_user = getpass.getuser()
+
     # code-server specific dirs
     user_dir = os.path.join(os.environ.get(
         'WORK', default=home_dir), 'code-server'
@@ -71,6 +75,24 @@ def setup_code_server() -> Dict[str, Any]:
     extensions_dir = os.path.join(os.environ.get(
         'WORK', default=home_dir), 'code-server', 'extensions'
     )
+
+    # By default we use JOBSCRATCH to place ephermal
+    # scripts. If this is not available we need to have a smart fallback
+    # option to take different users and different JupyterLab instances
+    # into account.
+    # Fallback is /tmp/$USER-{random-hash}
+    if os.environ.get('JOBSCRATCH'):
+        scratch_dir_perfix = os.environ.get('JOBSCRATCH')
+    else:
+        scratch_dir_perfix = tempfile.mkdtemp(prefix=f'{current_user}-')
+
+    # Unix socket path
+    unix_socket_path = os.path.join(
+        scratch_dir_perfix, 'run', 'code-server.sock'
+    )
+
+    # Ensure we create socket dir
+    os.makedirs(os.path.dirname(unix_socket_path), exist_ok=True)
 
     # Config file name
     # Each lab instance can have its own config file. We do not want to overwrite
@@ -101,10 +123,9 @@ def setup_code_server() -> Dict[str, Any]:
 
         # Config file attributes
         config = {
-            'auth': None,
             'cert': False,
         }
-        
+
         # Dump config file
         with open(code_server_config_file, 'w') as f:
             json.dump(config, f, indent=2)
@@ -158,21 +179,6 @@ wait
     code_server_env_bin=os.path.join(code_server_env_root, 'bin')
 )
 
-        # Fall back root directory. By default we use JOBSCRATCH to place ephermal
-        # scripts. If this is not available we need to have a smart fallback
-        # option to take different users and different JupyterLab instances
-        # into account.
-        # Fallback to fallback is /tmp/$USER
-        fallback_scratch_dir_prefix = os.environ.get(
-            'JUPYTER_CONFIG_DIR', default=os.path.join(
-                '/tmp', os.environ.get('USER')
-            )
-        )
-
-        # Root directory to save the code server wrapper
-        scratch_dir_perfix = os.environ.get(
-            'JOBSCRATCH', default=fallback_scratch_dir_prefix
-        )
         scratch_dir = os.path.join(
             scratch_dir_perfix,
             'bin',
@@ -191,6 +197,7 @@ wait
         # Write wrapper script to directory
         with open(code_server_wrapper, 'w') as f:
             f.write(script_template)
+
         # Make it executable
         st = os.stat(code_server_wrapper)
         os.chmod(code_server_wrapper, st.st_mode | stat.S_IEXEC)
@@ -201,9 +208,9 @@ wait
         # We pass the extensions-dir argument as CLI
         cmd_args = [
             code_server_wrapper, '--socket', str(unix_socket), 'socket-mode', '700',
-            '--config', code_server_config_file, '--user-data-dir', user_dir,
-            '--extensions-dir', extensions_dir, '--disable-telemetry',
-            '--disable-update-check'
+            '--auth', 'none', '--config', code_server_config_file,
+            '--user-data-dir', user_dir, '--extensions-dir', extensions_dir,
+            '--disable-telemetry', '--disable-update-check'
         ]
 
         # If arguments like host, port are found in config, delete them.
@@ -211,7 +218,7 @@ wait
         # Additionally we delete path_prefix as well.
         for arg in [
             '--bind-addr', 'socket', 'socket-mode',
-            '--install-extension', '700',
+            '--install-extension',
             '--extensions-dir', '--user-data-dir'
             ]:
             if arg in args:
@@ -238,7 +245,7 @@ wait
         'timeout': 300,
         'new_browser_tab': True,
         'rewrite_response': forbid_port_forwarding,
-        'unix_socket': True,
+        'unix_socket': unix_socket_path,
         'launcher_entry': {
             'enabled': True,
             'title': 'Code server',
