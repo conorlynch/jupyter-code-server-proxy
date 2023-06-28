@@ -19,8 +19,6 @@ import time
 import stat
 import logging
 import json
-from pathlib import Path
-import secrets
 
 from typing import Any
 from typing import Dict
@@ -63,9 +61,6 @@ def setup_code_server() -> Dict[str, Any]:
             code_server_env_root, 'bin', code_server_executable
         )
 
-    # generate file with random one-time-password
-    code_server_passwd = str(secrets.token_hex(16))
-
     # Get home dir
     home_dir = os.path.expanduser('~')
 
@@ -103,21 +98,13 @@ def setup_code_server() -> Dict[str, Any]:
         code_server_config_dir = os.path.dirname(code_server_config_file)
         # Ensure config dir exists
         os.makedirs(code_server_config_dir, exist_ok=True)
-        try:
-            # Check last modifed time of config file
-            last_modified = os.path.getmtime(code_server_config_file)
-            # If last modified is less than 7 days, do not update password
-            if time.time() - last_modified < 604800:
-                return
-        except FileNotFoundError:
-            # If file does not exist continue
-            pass
+
         # Config file attributes
         config = {
-            'auth': 'password',
-            'password': code_server_passwd,
+            'auth': None,
             'cert': False,
         }
+        
         # Dump config file
         with open(code_server_config_file, 'w') as f:
             json.dump(config, f, indent=2)
@@ -129,7 +116,7 @@ def setup_code_server() -> Dict[str, Any]:
             'code-server-logo.svg'
         )
 
-    def _code_server_command(port, args):
+    def _code_server_command(port, unix_socket, args):
         """Callable that we will pass to sever proxy to spin up
         code server"""
         # Check if code server executable is available
@@ -181,6 +168,7 @@ wait
                 '/tmp', os.environ.get('USER')
             )
         )
+
         # Root directory to save the code server wrapper
         scratch_dir_perfix = os.environ.get(
             'JOBSCRATCH', default=fallback_scratch_dir_prefix
@@ -190,13 +178,16 @@ wait
             'bin',
             os.environ.get('JUPYTERHUB_SERVER_NAME', default='jupyterlab')
         )
+
         # Check if scratch dir exists and create one if it does not
         if not os.path.exists(scratch_dir):
             os.makedirs(scratch_dir, exist_ok=True)
+
         # Path to code server wrapper
         code_server_wrapper = os.path.join(
             scratch_dir, 'code_server_wrapper.sh'
         )
+
         # Write wrapper script to directory
         with open(code_server_wrapper, 'w') as f:
             f.write(script_template)
@@ -209,7 +200,7 @@ wait
         # we should put an issue in the upstream project?
         # We pass the extensions-dir argument as CLI
         cmd_args = [
-            code_server_wrapper, '--bind-addr', f'127.0.0.1:{port}',
+            code_server_wrapper, '--socket', str(unix_socket), 'socket-mode', '700',
             '--config', code_server_config_file, '--user-data-dir', user_dir,
             '--extensions-dir', extensions_dir, '--disable-telemetry',
             '--disable-update-check'
@@ -219,7 +210,8 @@ wait
         # We let Jupyter server proxy to take care of them
         # Additionally we delete path_prefix as well.
         for arg in [
-            '--bind-addr', '--install-extension',
+            '--bind-addr', 'socket', 'socket-mode',
+            '--install-extension', '700',
             '--extensions-dir', '--user-data-dir'
             ]:
             if arg in args:
@@ -246,6 +238,7 @@ wait
         'timeout': 300,
         'new_browser_tab': True,
         'rewrite_response': forbid_port_forwarding,
+        'unix_socket': True,
         'launcher_entry': {
             'enabled': True,
             'title': 'Code server',
