@@ -107,7 +107,7 @@ def setup_code_server() -> Dict[str, Any]:
 
     def forbid_port_forwarding(response, request):
         """Forbid the port forwarding requests to code server"""
-        if re.search(f'(.*)/code_server_[0-9]/proxy/([0-9]*)', request.uri):
+        if re.search(f'(.*)/code_server/[0-9]/proxy/([0-9]*)', request.uri):
             response.code = 403
             raise tornado.web.HTTPError(
                 403, 'Port forwarding using code server is forbidden!!'
