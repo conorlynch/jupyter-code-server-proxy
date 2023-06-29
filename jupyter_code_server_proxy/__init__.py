@@ -179,6 +179,20 @@ wait
     code_server_env_bin=os.path.join(code_server_env_root, 'bin')
 )
 
+        # Fall back root directory. By default we use JOBSCRATCH to place ephermal
+        # scripts. If this is not available we need to have a smart fallback
+        # option to take different users and different JupyterLab instances
+        # into account.
+        # Fallback to fallback is /tmp/$USER
+        fallback_scratch_dir_prefix = os.environ.get(
+            'JUPYTER_FILES_ROOT', default=os.path.join(
+                '/tmp', os.environ.get('USER')
+            )
+        )
+        # Root directory to save the code server wrapper
+        scratch_dir_perfix = os.environ.get(
+            'JOBSCRATCH', default=fallback_scratch_dir_prefix
+        )
         scratch_dir = os.path.join(
             scratch_dir_perfix,
             'bin',
