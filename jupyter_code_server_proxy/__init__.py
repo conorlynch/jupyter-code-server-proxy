@@ -15,12 +15,11 @@
 
 import os
 import re
-import time
+import tempfile
+import getpass
 import stat
 import logging
 import json
-from pathlib import Path
-import secrets
 
 from typing import Any
 from typing import Dict
@@ -63,11 +62,11 @@ def setup_code_server() -> Dict[str, Any]:
             code_server_env_root, 'bin', code_server_executable
         )
 
-    # generate file with random one-time-password
-    code_server_passwd = str(secrets.token_hex(16))
-
     # Get home dir
     home_dir = os.path.expanduser('~')
+
+    # Get current user
+    current_user = getpass.getuser()
 
     # code-server specific dirs
     user_dir = os.path.join(os.environ.get(
@@ -76,6 +75,24 @@ def setup_code_server() -> Dict[str, Any]:
     extensions_dir = os.path.join(os.environ.get(
         'WORK', default=home_dir), 'code-server', 'extensions'
     )
+
+    # By default we use JOBSCRATCH to place ephermal
+    # scripts. If this is not available we need to have a smart fallback
+    # option to take different users and different JupyterLab instances
+    # into account.
+    # Fallback is /tmp/$USER-{random-hash}
+    if os.environ.get('JOBSCRATCH'):
+        scratch_dir_perfix = os.environ.get('JOBSCRATCH')
+    else:
+        scratch_dir_perfix = tempfile.mkdtemp(prefix=f'{current_user}-')
+
+    # Unix socket path
+    unix_socket_path = os.path.join(
+        scratch_dir_perfix, 'run', 'code-server.sock'
+    )
+
+    # Ensure we create socket dir
+    os.makedirs(os.path.dirname(unix_socket_path), exist_ok=True)
 
     # Config file name
     # Each lab instance can have its own config file. We do not want to overwrite
@@ -90,7 +107,7 @@ def setup_code_server() -> Dict[str, Any]:
 
     def forbid_port_forwarding(response, request):
         """Forbid the port forwarding requests to code server"""
-        if re.search(f'(.*)/code_server_[0-9]/proxy/([0-9]*)', request.uri):
+        if re.search(f'(.*)/code_server/[0-9]/proxy/([0-9]*)', request.uri):
             response.code = 403
             raise tornado.web.HTTPError(
                 403, 'Port forwarding using code server is forbidden!!'
@@ -103,21 +120,12 @@ def setup_code_server() -> Dict[str, Any]:
         code_server_config_dir = os.path.dirname(code_server_config_file)
         # Ensure config dir exists
         os.makedirs(code_server_config_dir, exist_ok=True)
-        try:
-            # Check last modifed time of config file
-            last_modified = os.path.getmtime(code_server_config_file)
-            # If last modified is less than 7 days, do not update password
-            if time.time() - last_modified < 604800:
-                return
-        except FileNotFoundError:
-            # If file does not exist continue
-            pass
+
         # Config file attributes
         config = {
-            'auth': 'password',
-            'password': code_server_passwd,
             'cert': False,
         }
+
         # Dump config file
         with open(code_server_config_file, 'w') as f:
             json.dump(config, f, indent=2)
@@ -129,7 +137,7 @@ def setup_code_server() -> Dict[str, Any]:
             'code-server-logo.svg'
         )
 
-    def _code_server_command(port, args):
+    def _code_server_command(port, unix_socket, args):
         """Callable that we will pass to sever proxy to spin up
         code server"""
         # Check if code server executable is available
@@ -190,16 +198,20 @@ wait
             'bin',
             os.environ.get('JUPYTERHUB_SERVER_NAME', default='jupyterlab')
         )
+
         # Check if scratch dir exists and create one if it does not
         if not os.path.exists(scratch_dir):
             os.makedirs(scratch_dir, exist_ok=True)
+
         # Path to code server wrapper
         code_server_wrapper = os.path.join(
             scratch_dir, 'code_server_wrapper.sh'
         )
+
         # Write wrapper script to directory
         with open(code_server_wrapper, 'w') as f:
             f.write(script_template)
+
         # Make it executable
         st = os.stat(code_server_wrapper)
         os.chmod(code_server_wrapper, st.st_mode | stat.S_IEXEC)
@@ -209,17 +221,18 @@ wait
         # we should put an issue in the upstream project?
         # We pass the extensions-dir argument as CLI
         cmd_args = [
-            code_server_wrapper, '--bind-addr', f'127.0.0.1:{port}',
-            '--config', code_server_config_file, '--user-data-dir', user_dir,
-            '--extensions-dir', extensions_dir, '--disable-telemetry',
-            '--disable-update-check'
+            code_server_wrapper, '--socket', str(unix_socket), 'socket-mode', '700',
+            '--auth', 'none', '--config', code_server_config_file,
+            '--user-data-dir', user_dir, '--extensions-dir', extensions_dir,
+            '--disable-telemetry', '--disable-update-check'
         ]
 
         # If arguments like host, port are found in config, delete them.
         # We let Jupyter server proxy to take care of them
         # Additionally we delete path_prefix as well.
         for arg in [
-            '--bind-addr', '--install-extension',
+            '--bind-addr', 'socket', 'socket-mode',
+            '--install-extension',
             '--extensions-dir', '--user-data-dir'
             ]:
             if arg in args:
@@ -246,6 +259,7 @@ wait
         'timeout': 300,
         'new_browser_tab': True,
         'rewrite_response': forbid_port_forwarding,
+        'unix_socket': unix_socket_path,
         'launcher_entry': {
             'enabled': True,
             'title': 'Code server',
