@@ -53,9 +53,13 @@ def setup_code_server() -> Dict[str, Any]:
     logger = get_logger(__name__)
     logger.setLevel(logging.INFO)
 
+    ##Conor Edit
     code_server_executable = 'code-server'
+
     # Get code server env root directory if set
-    code_server_env_root = os.environ.get('CODE_SERVER_ENV_ROOT', '')
+    code_server_env_root = os.environ.get('CODE_SERVER_ENV_ROOT', 'usr/lib/code-server/')
+    
+    
     # Update code_server_executable
     if code_server_env_root:
         code_server_executable = os.path.join(
